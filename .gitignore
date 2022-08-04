@@ -2,3 +2,4 @@
 launchSettings.json
 obj/
 bin/
+*.user
