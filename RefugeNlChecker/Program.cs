@@ -20,5 +20,3 @@ await Host.CreateDefaultBuilder(args)
             .Bind(context.Configuration);
     })
     .RunConsoleAsync();
-
-
