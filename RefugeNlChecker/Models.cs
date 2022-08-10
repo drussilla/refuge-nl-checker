@@ -50,4 +50,14 @@ public class Response
     public string date { get; set; }
     public string location { get; set; }
     public LocationData location_data { get; set; }
+
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(time, date, location);
+    }
+
+    public override bool Equals(object? obj)
+    {
+        return GetHashCode() == obj?.GetHashCode();
+    }
 }

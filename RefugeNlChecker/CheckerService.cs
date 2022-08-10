@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -13,6 +14,8 @@ public class CheckerService : BackgroundService
     private string? _token;
     private List<string>? _cookies;
 
+    private Dictionary<Response, DateTime> _reportedDateTimes = new();
+
     public CheckerService(ITelegramClient telegram, HttpClient client, ILogger<CheckerService> log)
     {
         _telegram = telegram;
@@ -24,17 +27,17 @@ public class CheckerService : BackgroundService
     {
         await _telegram.SendPrivateMessage("Executing", stoppingToken);
 
-        await GetNewToken(stoppingToken);
-
         while (!stoppingToken.IsCancellationRequested)
         {
-            var date = DateTime.Now.AddDays(2);
+            await GetNewToken(stoppingToken);
+
+            var date = DateTime.Now.AddDays(1);
 
             while (date < new DateTime(2022, 10, 01))
             {
                 await CheckEndpoint(date, "https://post.refugeepass.nl/api/v1/appointment/get-alternative-options", stoppingToken);
                 date = date.AddDays(1);
-                Thread.Sleep(TimeSpan.FromSeconds(2));
+                Thread.Sleep(TimeSpan.FromSeconds(5));
             }
         }
     }
@@ -93,7 +96,15 @@ public class CheckerService : BackgroundService
             foreach (var data in response)
             {
                 _log.LogInformation($"FOUND! {selectedDate}\r\n\r\nDate: {data.date}\r\nTime: {data.time}\r\nLocation: {data.location_data.name}\r\nAddress: {data.location_data.address}");
+                
+                if (_reportedDateTimes.TryGetValue(data, out var dateReported) && DateTime.UtcNow - dateReported < TimeSpan.FromMinutes(5))
+                {
+                    _log.LogInformation("This was reported less than 5 minutes ago, skip this time slot");
+                    continue;
+                }
 
+                _log.LogInformation("Reporting time slot to the chat");
+                _reportedDateTimes[data] = DateTime.UtcNow;
                 var message = "Знайдено вільне місце для 1 людини.\r\n" +
                               $"Дата: {data.date}\r\n" +
                               $"Час: {data.time}\r\n" +
@@ -105,11 +116,26 @@ public class CheckerService : BackgroundService
                 await _telegram.SendMessage(message, cancellationToken);
             }
         }
+        else
+        {
+            _log.LogInformation($"{selectedDate:yyyy-MM-dd} nothing :( rate left: {rateLeft}");
+        }
 
-        _log.LogInformation($"{selectedDate:yyyy-MM-dd} nothing :( rate left: {rateLeft}");
+        CleanUpExpiredCache();
     }
 
-    async Task GetNewToken(CancellationToken cancellationToken)
+    private void CleanUpExpiredCache()
+    {
+        foreach (var reportedDateTime in _reportedDateTimes)
+        {
+            if (DateTime.UtcNow - reportedDateTime.Value > TimeSpan.FromSeconds(10))
+            {
+                _reportedDateTimes.Remove(reportedDateTime.Key);
+            }
+        }
+    }
+
+    private async Task GetNewToken(CancellationToken cancellationToken)
     {
         _log.LogInformation("Getting new token");
         var response = await _client.GetAsync("https://portaal.refugeepass.nl/en/make-an-appointment", cancellationToken);
