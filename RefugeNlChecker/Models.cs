@@ -1,5 +1,5 @@
 ﻿namespace RefugeNlChecker;
-
+#pragma warning disable CS8618
 public class AppointmentOptions
 {
     public string appointment { get; set; }
@@ -61,3 +61,4 @@ public class Response
         return GetHashCode() == obj?.GetHashCode();
     }
 }
+#pragma warning restore CS8618
