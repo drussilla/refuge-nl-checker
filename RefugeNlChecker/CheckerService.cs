@@ -15,6 +15,15 @@ public class CheckerService : BackgroundService
     private List<string>? _cookies;
 
     private Dictionary<Response, DateTime> _reportedDateTimes = new();
+    // List taken from: https://portaal.refugeepass.nl/en/locations on 2022-08-10 19:10
+    private static Dictionary<string, string> PostcodeDictionary = new Dictionary<string, string>{
+        { "Amsterdam", "1103 TV" },
+        { "Nieuwegein", "3438 EX" },
+        { "Rijswijk", "2288 GD" },
+        { "Den Bosch", "5222 AK" },
+        { "Deventer", "7418 BM" },
+        { "Assen", "9405 BL" },
+    };
 
     public CheckerService(ITelegramClient telegram, HttpClient client, ILogger<CheckerService> log)
     {
@@ -80,7 +89,7 @@ public class CheckerService : BackgroundService
             await GetNewToken(cancellationToken);
             return;
         }
-    
+
         if (resp.StatusCode != HttpStatusCode.OK)
         {
             _log.LogError($"{selectedDate} Unexpected error code: {resp.StatusCode}");
@@ -96,7 +105,7 @@ public class CheckerService : BackgroundService
             foreach (var data in response)
             {
                 _log.LogInformation($"FOUND! {selectedDate}\r\n\r\nDate: {data.date}\r\nTime: {data.time}\r\nLocation: {data.location_data.name}\r\nAddress: {data.location_data.address}");
-                
+
                 if (_reportedDateTimes.TryGetValue(data, out var dateReported) && DateTime.UtcNow - dateReported < TimeSpan.FromMinutes(5))
                 {
                     _log.LogInformation("This was reported less than 5 minutes ago, skip this time slot");
@@ -110,6 +119,7 @@ public class CheckerService : BackgroundService
                               $"Час: {data.time}\r\n" +
                               $"Місто: {data.location_data.name}\r\n" +
                               $"Адреса: {data.location_data.address}\r\n" +
+                              (PostcodeDictionary.ContainsKey(data.location_data.name) ? $"Поштовий індекс: {PostcodeDictionary[data.location_data.name]}\r\n" : "") +
                               "\r\n" +
                               "Реестрація: https://portaal.refugeepass.nl/uk/make-an-appointment";
 
