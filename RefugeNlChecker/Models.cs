@@ -1,5 +1,5 @@
 ﻿namespace RefugeNlChecker;
-
+#pragma warning disable CS8618
 public class AppointmentOptions
 {
     public string appointment { get; set; }
@@ -50,14 +50,5 @@ public class Response
     public string date { get; set; }
     public string location { get; set; }
     public LocationData location_data { get; set; }
-
-    public override int GetHashCode()
-    {
-        return HashCode.Combine(time, date, location);
-    }
-
-    public override bool Equals(object? obj)
-    {
-        return GetHashCode() == obj?.GetHashCode();
-    }
 }
+#pragma warning restore CS8618

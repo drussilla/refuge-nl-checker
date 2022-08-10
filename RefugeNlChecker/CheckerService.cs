@@ -1,6 +1,5 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
-using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -13,8 +12,15 @@ public class CheckerService : BackgroundService
     private readonly ILogger<CheckerService> _log;
     private string? _token;
     private List<string>? _cookies;
-
-    private Dictionary<Response, DateTime> _reportedDateTimes = new();
+    // List taken from: https://portaal.refugeepass.nl/en/locations on 2022-08-10 19:10
+    private static Dictionary<string, string> PostcodeDictionary = new Dictionary<string, string>{
+        { "Amsterdam", "1103 TV" },
+        { "Nieuwegein", "3438 EX" },
+        { "Rijswijk", "2288 GD" },
+        { "Den Bosch", "5222 AK" },
+        { "Deventer", "7418 BM" },
+        { "Assen", "9405 BL" },
+    };
 
     public CheckerService(ITelegramClient telegram, HttpClient client, ILogger<CheckerService> log)
     {
@@ -27,17 +33,17 @@ public class CheckerService : BackgroundService
     {
         await _telegram.SendPrivateMessage("Executing", stoppingToken);
 
+        await GetNewToken(stoppingToken);
+
         while (!stoppingToken.IsCancellationRequested)
         {
-            await GetNewToken(stoppingToken);
-
-            var date = DateTime.Now.AddDays(1);
+            var date = DateTime.Now.AddDays(2);
 
             while (date < new DateTime(2022, 10, 01))
             {
                 await CheckEndpoint(date, "https://post.refugeepass.nl/api/v1/appointment/get-alternative-options", stoppingToken);
                 date = date.AddDays(1);
-                Thread.Sleep(TimeSpan.FromSeconds(5));
+                Thread.Sleep(TimeSpan.FromSeconds(2));
             }
         }
     }
@@ -80,7 +86,7 @@ public class CheckerService : BackgroundService
             await GetNewToken(cancellationToken);
             return;
         }
-    
+
         if (resp.StatusCode != HttpStatusCode.OK)
         {
             _log.LogError($"{selectedDate} Unexpected error code: {resp.StatusCode}");
@@ -96,46 +102,24 @@ public class CheckerService : BackgroundService
             foreach (var data in response)
             {
                 _log.LogInformation($"FOUND! {selectedDate}\r\n\r\nDate: {data.date}\r\nTime: {data.time}\r\nLocation: {data.location_data.name}\r\nAddress: {data.location_data.address}");
-                
-                if (_reportedDateTimes.TryGetValue(data, out var dateReported) && DateTime.UtcNow - dateReported < TimeSpan.FromMinutes(5))
-                {
-                    _log.LogInformation("This was reported less than 5 minutes ago, skip this time slot");
-                    continue;
-                }
 
-                _log.LogInformation("Reporting time slot to the chat");
-                _reportedDateTimes[data] = DateTime.UtcNow;
                 var message = "Знайдено вільне місце для 1 людини.\r\n" +
                               $"Дата: {data.date}\r\n" +
                               $"Час: {data.time}\r\n" +
                               $"Місто: {data.location_data.name}\r\n" +
                               $"Адреса: {data.location_data.address}\r\n" +
+                              (PostcodeDictionary.ContainsKey(data.location_data.name) ? $"Поштовий індекс: {PostcodeDictionary[data.location_data.name]}\r\n" : "") +
                               "\r\n" +
                               "Реестрація: https://portaal.refugeepass.nl/uk/make-an-appointment";
 
                 await _telegram.SendMessage(message, cancellationToken);
             }
         }
-        else
-        {
-            _log.LogInformation($"{selectedDate:yyyy-MM-dd} nothing :( rate left: {rateLeft}");
-        }
 
-        CleanUpExpiredCache();
+        _log.LogInformation($"{selectedDate:yyyy-MM-dd} nothing :( rate left: {rateLeft}");
     }
 
-    private void CleanUpExpiredCache()
-    {
-        foreach (var reportedDateTime in _reportedDateTimes)
-        {
-            if (DateTime.UtcNow - reportedDateTime.Value > TimeSpan.FromSeconds(10))
-            {
-                _reportedDateTimes.Remove(reportedDateTime.Key);
-            }
-        }
-    }
-
-    private async Task GetNewToken(CancellationToken cancellationToken)
+    async Task GetNewToken(CancellationToken cancellationToken)
     {
         _log.LogInformation("Getting new token");
         var response = await _client.GetAsync("https://portaal.refugeepass.nl/en/make-an-appointment", cancellationToken);
