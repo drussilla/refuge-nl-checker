@@ -1,6 +1,5 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
-using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -14,15 +13,21 @@ public class CheckerService : BackgroundService
     private string? _token;
     private List<string>? _cookies;
 
-    private Dictionary<Response, DateTime> _reportedDateTimes = new();
+    private readonly Dictionary<Response, DateTime> _reportedDateTimes = new();
     // List taken from: https://portaal.refugeepass.nl/en/locations on 2022-08-10 19:10
-    private static Dictionary<string, string> PostcodeDictionary = new Dictionary<string, string>{
+    private static readonly Dictionary<string, string> PostcodeDictionary = new()
+    {
         { "Amsterdam", "1103 TV" },
         { "Nieuwegein", "3438 EX" },
         { "Rijswijk", "2288 GD" },
         { "Den Bosch", "5222 AK" },
         { "Deventer", "7418 BM" },
         { "Assen", "9405 BL" },
+    };
+
+    private static readonly List<string> RandomPostcodes = new()
+    {
+        "2181", "9405", "1103", "3438", "5222", "2101"
     };
 
     public CheckerService(ITelegramClient telegram, HttpClient client, ILogger<CheckerService> log)
@@ -46,7 +51,7 @@ public class CheckerService : BackgroundService
             {
                 await CheckEndpoint(date, "https://post.refugeepass.nl/api/v1/appointment/get-alternative-options", stoppingToken);
                 date = date.AddDays(1);
-                Thread.Sleep(TimeSpan.FromSeconds(5));
+                Thread.Sleep(TimeSpan.FromSeconds(10));
             }
         }
     }
@@ -60,7 +65,8 @@ public class CheckerService : BackgroundService
                 amount = "1",
                 date = dateTime.ToString("yyyy-MM-dd")
             },
-            place = new() { postcode = "2181" },
+            // Get random postcode for each request.
+            place = new() { postcode = RandomPostcodes[Random.Shared.Next(RandomPostcodes.Count)] },
             appointment_options = new() { appointment = string.Empty },
             confirm = new(),
             info = new() { telephone_number = string.Empty }
@@ -106,6 +112,7 @@ public class CheckerService : BackgroundService
             {
                 _log.LogInformation($"FOUND! {selectedDate}\r\n\r\nDate: {data.date}\r\nTime: {data.time}\r\nLocation: {data.location_data.name}\r\nAddress: {data.location_data.address}");
 
+                // Do not report the same place for 5 minutes
                 if (_reportedDateTimes.TryGetValue(data, out var dateReported) && DateTime.UtcNow - dateReported < TimeSpan.FromMinutes(5))
                 {
                     _log.LogInformation("This was reported less than 5 minutes ago, skip this time slot");
@@ -124,6 +131,9 @@ public class CheckerService : BackgroundService
                               "Реестрація: https://portaal.refugeepass.nl/uk/make-an-appointment";
 
                 await _telegram.SendMessage(message, cancellationToken);
+                
+                // Sleep for 3 minutes before checking again
+                Thread.Sleep(TimeSpan.FromMinutes(3));
             }
         }
         else
@@ -138,7 +148,7 @@ public class CheckerService : BackgroundService
     {
         foreach (var reportedDateTime in _reportedDateTimes)
         {
-            if (DateTime.UtcNow - reportedDateTime.Value > TimeSpan.FromSeconds(10))
+            if (DateTime.UtcNow - reportedDateTime.Value > TimeSpan.FromMinutes(10))
             {
                 _reportedDateTimes.Remove(reportedDateTime.Key);
             }
