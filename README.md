@@ -1,4 +1,4 @@
-This is a very simple C# program that checks slot availability on https://portaal.refugeepass.nl/make-an-appointment and reports it in Telegram chat so Ukrainian refugees can make an appointment
+This is a very simple C# program that checks slot availability on https://portaal.refugeepass.nl/make-an-appointment and reports it in Telegram chat so Ukrainian refugees can make an appointment without constantly checking availability manually.
 
 Build and run
 ==
